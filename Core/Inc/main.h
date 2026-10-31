@@ -1,4 +1,5 @@
 /* USER CODE BEGIN Header */
+#include <stdbool.h>
 /**
   ******************************************************************************
   * @file           : main.h
@@ -61,6 +62,10 @@ void Error_Handler(void);
 #define RED_LED_1_GPIO_Port GPIOA
 #define GREEN_LED_Pin GPIO_PIN_15
 #define GREEN_LED_GPIO_Port GPIOA
+#define INCREASE_BTN_Pin GPIO_PIN_4
+#define INCREASE_BTN_GPIO_Port GPIOB
+#define STOP_BTN_Pin GPIO_PIN_6
+#define STOP_BTN_GPIO_Port GPIOB
 #define RED_LED_2_Pin GPIO_PIN_9
 #define RED_LED_2_GPIO_Port GPIOB
 
