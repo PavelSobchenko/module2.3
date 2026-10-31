@@ -26,6 +26,26 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct {
+	GPIO_TypeDef *port;
+	uint8_t increaseLvl;
+	const uint16_t pin;
+	uint32_t lastChangeTimestampMs;
+} Led;
+
+typedef struct Button Button;
+typedef void (*ButtonHandler)(Button *btn);
+
+struct Button {
+	GPIO_TypeDef *port;
+	const uint16_t pin;
+	const ButtonHandler onPress;
+	bool pressed;
+	bool lastRaw;
+	uint32_t lastChangeMS;
+	Led *const *const leds;
+	const uint8_t ledsCount;
+};
 
 /* USER CODE END PTD */
 
@@ -42,6 +62,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -49,11 +70,49 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 
+static void button_update(Button *b);
+static void on_increase_press(Button *b);
+static void on_stop_press(Button *b);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+const uint8_t INTERVAL_MS = 100;
+const uint8_t DEBOUNCE_MS = 30;
+const uint8_t MAX_INCREASE_LVL = 10;
+const uint16_t STOP_INTERVAL_MS = 2000;
 
+const uint8_t LED_COUNT = 3;
+static Led leds[] = {
+		{ .pin =  RED_LED_1_Pin, .port = RED_LED_1_GPIO_Port, .increaseLvl = 2 },
+		{ .pin =  GREEN_LED_Pin, .port = GREEN_LED_GPIO_Port, .increaseLvl = 5 },
+		{ .pin =  RED_LED_2_Pin, .port = RED_LED_2_GPIO_Port, .increaseLvl = 10 },
+};
+
+static Led *const increase_leds[] = { &leds[0] };
+static Led *const all_leds[] = { &leds[0], &leds[1], &leds[2] };
+
+const uint8_t BUTTONS_COUNT = 2;
+static Button buttons[] = {
+		{
+				.pin = INCREASE_BTN_Pin,
+				.port = INCREASE_BTN_GPIO_Port,
+				.onPress = on_increase_press,
+				.leds = increase_leds,
+				.ledsCount = 1
+		},
+		{
+				.pin = STOP_BTN_Pin,
+				.port = STOP_BTN_GPIO_Port,
+				.onPress = on_stop_press,
+				.leds = all_leds,
+				.ledsCount = 3,
+		},
+};
+
+bool allStoped = false;
+uint32_t allStopedAtMs = 0;
 /* USER CODE END 0 */
 
 /**
@@ -62,7 +121,12 @@ static void MX_GPIO_Init(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
+	// set all leds off
+	for(size_t i = 0; i < LED_COUNT; i ++) {
+		HAL_GPIO_WritePin(leds[i].port, leds[i].pin, GPIO_PIN_RESET);
+	}
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -91,6 +155,22 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  uint32_t now = HAL_GetTick();
+
+	  if (allStoped && now - allStopedAtMs >= STOP_INTERVAL_MS) {
+		  allStoped = false;
+	  } else if (!allStoped) {
+		  for(size_t i = 0; i < LED_COUNT; i ++) {
+			  if (now - leds[i].lastChangeTimestampMs >= INTERVAL_MS * leds[i].increaseLvl) {
+				  leds[i].lastChangeTimestampMs = now;
+				  HAL_GPIO_TogglePin(leds[i].port, leds[i].pin);
+			  }
+		  }
+	  }
+
+	  for (size_t i = 0; i < BUTTONS_COUNT; i++) {
+		  button_update(&buttons[i]);
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -174,6 +254,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : INCREASE_BTN_Pin STOP_BTN_Pin */
+  GPIO_InitStruct.Pin = INCREASE_BTN_Pin|STOP_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pin : RED_LED_2_Pin */
   GPIO_InitStruct.Pin = RED_LED_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -187,6 +273,40 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+static void button_update(Button *b) {
+	bool raw = HAL_GPIO_ReadPin(b->port, b->pin);
+	uint32_t now = HAL_GetTick();
+
+	if (raw != b->lastRaw) {
+		b->lastRaw = raw;
+		b->lastChangeMS = now;
+		return;
+	}
+
+	if (raw != b->pressed && now - b->lastChangeMS >= DEBOUNCE_MS) {
+		b->pressed = raw;
+		if (b->pressed) {
+			b->onPress(b);
+		}
+	}
+}
+
+static void on_increase_press(Button *b) {
+	for (size_t i = 0; i < b->ledsCount; i++) {
+		uint8_t currntLvl = b->leds[i]->increaseLvl;
+		b->leds[i]->increaseLvl = (currntLvl + 1) % MAX_INCREASE_LVL;
+	}
+}
+
+static void on_stop_press(Button *b) {
+	allStoped = true;
+	allStopedAtMs = HAL_GetTick();
+
+	for (size_t i = 0; i < b->ledsCount; i++) {
+		HAL_GPIO_WritePin(b->leds[i]->port, b->leds[i]->pin, GPIO_PIN_RESET);
+	}
+}
 
 /* USER CODE END 4 */
 
